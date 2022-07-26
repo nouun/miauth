@@ -49,9 +49,42 @@ extension Data {
         Self(repeating: value, count: Swift.max(length - self.count, 0)) + self
     }
     
-    static func from(int: Int32) -> Data {
+    func padEnd(toLength length: Int, with value: Element) -> Self {
+        self + Self(repeating: value, count: Swift.max(length - self.count, 0))
+    }
+    
+    func padEnd(toBlockSize blockSize: Int, with value: Element) -> Self {
+        let paddingLength = blockSize - self.count % blockSize
+        if paddingLength == blockSize { return self }
+        
+        return self.padEnd(toLength: self.count + paddingLength, with: value)
+    }
+    
+    mutating func append(byte: UInt8) {
+        self.append(contentsOf: [byte])
+    }
+    
+    func appending(_ other: Self) -> Self {
+        var out = Self(self)
+        out.append(other)
+        return out
+    }
+    
+    func appending(contentsOf bytes: [UInt8]) -> Self {
+        var out = Self(self)
+        out.append(contentsOf: bytes)
+        return out
+    }
+    
+    func appending(byte: UInt8) -> Self {
+        var out = Self(self)
+        out.append(byte: byte)
+        return out
+    }
+    
+    static func from(int: Int32) -> Self {
         var int = int
-        return Data(bytes: &int, count: MemoryLayout.size(ofValue: int))
+        return Self(bytes: &int, count: MemoryLayout.size(ofValue: int))
     }
     
     static func random(_ byteLength: Int) -> Self {

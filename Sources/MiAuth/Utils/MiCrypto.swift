@@ -6,15 +6,12 @@
 //
 
 import CommonCrypto
-import CryptoSwift
 import CryptoKit
 import Foundation
-import VPCCMCrypt
 
 public class MiCrypto {
     private typealias HMAC = CryptoKit.HMAC
     private typealias HKDF = CryptoKit.HKDF
-    private typealias AES = CryptoSwift.AES
     
     public typealias Key = SymmetricKey
     public typealias PrivateKey = P256.KeyAgreement.PrivateKey
@@ -94,8 +91,8 @@ public class MiCrypto {
         let aad = Data([0x64, 0x65, 0x76, 0x49, 0x44])
         let nonce = Data([0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b])
         
-        let ccm = VPCCMCrypt(key: key, iv: nonce, adata: aad, tagLength: 4)
-        return ccm?.encryptData(with: did)
+        let ccm = AESCCM(key: key, iv: nonce, adata: aad, tagLength: 4)
+        return ccm.encrypt(data: did)
     }
     
     public static func encryptUart(withKey key: Data, iv: Data, massage: Data, it: Int32 = 0, rand: Data? = nil) -> Data? {
@@ -103,12 +100,11 @@ public class MiCrypto {
         let size = message.to(1)
         let dataInput = message.from(1) + rand.or(Data.random(4))
         
-        print(Data.from(int: it).hex())
         let it = Data.from(int: it).pad(toLength: 4, with: 0)
         let nonce = iv + Data([0, 0, 0, 0]) + it
         
-        let ccm = VPCCMCrypt(key: key, iv: nonce, adata: nil, tagLength: 4)
-        guard let ct = ccm?.encryptData(with: dataInput) else {
+        let ccm = AESCCM(key: key, iv: nonce, adata: nil, tagLength: 4)
+        guard let ct = ccm.encrypt(data: dataInput) else {
             return nil
         }
         
@@ -130,8 +126,8 @@ public class MiCrypto {
         let ct = message.from(5, to: -2)
         
         let nonce = iv + Data([0, 0, 0, 0]) + it + Data([0, 0])
-        
-        let ccm = VPCCMCrypt(key: key, iv: nonce, adata: nil, tagLength: 4)
-        return ccm?.decryptData(with: ct)
+
+        let ccm = AESCCM(key: key, iv: nonce, adata: nil, tagLength: 4)
+        return ccm.decrypt(data: ct)
     }
 }

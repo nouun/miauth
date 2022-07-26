@@ -17,15 +17,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "VPCCMCrypt",
-            dependencies: [],
-            path: "VPCCMCrypt",
-            cSettings: [
-                .headerSearchPath("Internal"),
-            ]),
-        .target(
             name: "MiAuth",
-            dependencies: ["VPCCMCrypt"]),
+            dependencies: []),
         .testTarget(
             name: "MiAuthTests",
             dependencies: ["MiAuth"]),

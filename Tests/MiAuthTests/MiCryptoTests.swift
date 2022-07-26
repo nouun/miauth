@@ -113,7 +113,7 @@ final class MiCrytpoTests: XCTestCase {
         let msg  = Data([0x55, 0xaa, 0x03, 0x20, 0x01, 0x10, 0x0e])
         let rand = Data([0x01, 0x02, 0x03, 0x04])
         let ct = MiCrypto.encryptUart(withKey: key, iv: iv, massage: msg, rand: rand)
-        XCTAssertEqual(expected, ct)
+        XCTAssertEqual(expected.hex(), ct?.hex())
     }
 
     func testDecryptUART() {

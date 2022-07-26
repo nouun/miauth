@@ -63,7 +63,7 @@ public class MiCrypto {
         return try? privateKey.sharedSecretFromKeyAgreement(with: publicKey).withUnsafeBytes { Data($0) }
     }
     
-    cgstatic func deriveKey(from input: Data, withSalt salt: Data? = nil) -> Data {
+    static func deriveKey(from input: Data, withSalt salt: Data? = nil) -> Data {
         let info: Data
         if salt.isSome() {
             info = "mible-login-info".data(using: .utf8)!

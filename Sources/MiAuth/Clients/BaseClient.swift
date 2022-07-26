@@ -9,15 +9,14 @@ import CoreBluetooth
 import Foundation
 
 public class BaseClient: NSObject {
+    private var autoDiscover: Bool
     private var manager: CBCentralManager!
     private var peripherals: [CBPeripheral] = []
     internal var peripheral: CBPeripheral?
     
     internal var txChar: CBCharacteristic?
     
-    public var stateDelegate: MiBLEDelegate?
-    public var deviceDelegate: MiDeviceDelegate?
-    public var logDelegate: LogDelegate?
+    public var delegate: MiDeviceDelegate?
     
     internal var discoveredCharacteristics: [CBCharacteristic] = []
     internal var discoveredServices: [CBService] = []
@@ -26,14 +25,12 @@ public class BaseClient: NSObject {
     internal var services: [MiUUID] = [ MiUUID.RX, MiUUID.TX ]
     internal var frameHeader: [UInt8] = []
     
-    public required override init() {
+    public init(autoDiscover: Bool = true) {
+        self.autoDiscover = autoDiscover
+        
         super.init()
         
         self.manager = CBCentralManager(delegate: self, queue: nil)
-    }
-    
-    public func test() {
-        print("Breakpoint here")
     }
     
     public func discover() {
@@ -67,13 +64,12 @@ public class BaseClient: NSObject {
         self.writeChunked(Data(self.frameHeader + value), to: txChar)
     }
     
-    public func writeChunked(_ data: Data, to characteristic: CBCharacteristic, withChuckSize chunkSize: Int = 20) {
+    internal func writeChunked(_ data: Data, to characteristic: CBCharacteristic, withChuckSize chunkSize: Int = 20) {
         guard let peripheral = self.peripheral else {
             return
         }
         
         [UInt8](data).chunked(into: chunkSize).forEach { data in
-            self.logDelegate?.log("Writing \(data.map { String(format: "%02hhX", $0) }.joined(separator: " "))")
             peripheral.writeValue(Data(data), for: characteristic, type: .withResponse)
         }
     }
@@ -81,31 +77,32 @@ public class BaseClient: NSObject {
 
 extension BaseClient: CBCentralManagerDelegate {
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        if central.state == .poweredOn { self.discover() }
-        self.stateDelegate?.didUpdate(state: central.state)
+        if central.state == .poweredOn && self.autoDiscover { self.discover() }
+        
+        self.delegate?.didUpdate(bleState: central.state)
     }
     
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
         guard peripherals.filter({ $0.name == peripheral.name }).isEmpty else { return }
         peripherals.append(peripheral)
-        self.deviceDelegate?.didDiscover(device: peripheral)
+        self.delegate?.didDiscover(device: peripheral)
     }
     
     public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        self.deviceDelegate?.didDeviceUpdate(state: .failedToConnect(device: peripheral, error: error))
+        self.delegate?.didUpdate(miState: .failedToConnect(device: peripheral, error: error))
     }
     
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         peripheral.delegate = self
         self.peripheral = peripheral
-        self.deviceDelegate?.didDeviceUpdate(state: .connected(device: peripheral))
+        self.delegate?.didUpdate(miState: .connected(device: peripheral))
         
         peripheral.discoverServices([])
-        self.deviceDelegate?.didDeviceUpdate(state: .fetchingServices)
+        self.delegate?.didUpdate(miState: .fetchingServices)
     }
     
     public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        self.deviceDelegate?.didDeviceUpdate(state: .disconnected(device: peripheral))
+        self.delegate?.didUpdate(miState: .disconnected(device: peripheral))
     }
 }
 
@@ -113,7 +110,7 @@ extension BaseClient: CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard let services = peripheral.services else { return }
         
-        self.deviceDelegate?.didDeviceUpdate(state: .fetchingCharacteristics)
+        self.delegate?.didUpdate(miState: .fetchingCharacteristics)
         
         let discoveredServiceUUIDs = self.discoveredServices.map { $0.uuid }
         let undiscoveredServices = services.filter { !discoveredServiceUUIDs.contains($0.uuid) }

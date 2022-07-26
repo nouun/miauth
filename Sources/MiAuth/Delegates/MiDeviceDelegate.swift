@@ -26,12 +26,14 @@ public enum MiValue {
     case firmware(version: String)
 }
 
-public protocol MiBLEDelegate {
-    func didUpdate(state: CBManagerState)
-}
-
 public protocol MiDeviceDelegate {
     func didDiscover(device: CBPeripheral)
     func didRecieve(value: MiValue)
-    func didDeviceUpdate(state: MiState)
+    func didUpdate(miState: MiState)
+    
+    func didUpdate(bleState: CBManagerState)
+}
+
+extension MiDeviceDelegate {
+    func didUpdate(bleState: CBManagerState) {}
 }

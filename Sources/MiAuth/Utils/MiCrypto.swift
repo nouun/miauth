@@ -13,21 +13,21 @@ public class MiCrypto {
     private typealias HMAC = CryptoKit.HMAC
     private typealias HKDF = CryptoKit.HKDF
     
-    public typealias Key = SymmetricKey
-    public typealias PrivateKey = P256.KeyAgreement.PrivateKey
-    public typealias PublicKey = P256.KeyAgreement.PublicKey
+    typealias Key = SymmetricKey
+    typealias PrivateKey = P256.KeyAgreement.PrivateKey
+    typealias PublicKey = P256.KeyAgreement.PublicKey
     
     /// Generate a cryptographically secure random 16 byte key.
     ///
     /// - Returns: Generated 16 byteY key
-    public static func generateRandomKey() -> Data {
+    static func generateRandomKey() -> Data {
         return SymmetricKey(size: .init(bitCount: 16 * 8)).withUnsafeBytes { Data($0) }
     }
     
     /// Generate a key pair using SECP256R1.
     ///
     /// - Returns: Private and public key pair
-    public static func generateKeyPair() -> (PrivateKey, PublicKey) {
+    static func generateKeyPair() -> (PrivateKey, PublicKey) {
         let privateKey = PrivateKey()
         return (privateKey, privateKey.publicKey)
     }
@@ -35,35 +35,35 @@ public class MiCrypto {
     /// Convert a public key into it's ANSI x9.63 representation.
     ///
     /// - Returns: The ANSI x9.63 representation
-    public static func data(fromPublicKey key: PublicKey) -> Data {
+    static func data(fromPublicKey key: PublicKey) -> Data {
         return key.x963Representation.from(1)
     }
     
-    public static func data(toPublicKey data: Data) -> PublicKey? {
+    static func data(toPublicKey data: Data) -> PublicKey? {
         return try? PublicKey(x963Representation: [0x04] + data)
     }
     
-    public static func pem(toPublicKey pem: String) -> PublicKey? {
+    static func pem(toPublicKey pem: String) -> PublicKey? {
         return try? PublicKey(pemRepresentation: pem)
     }
     
-    public static func data(fromPrivateKey key: PrivateKey) -> Data {
+    static func data(fromPrivateKey key: PrivateKey) -> Data {
         return key.x963Representation.from(1)
     }
     
-    public static func data(toPrivateKey data: Data) -> PrivateKey? {
+    static func data(toPrivateKey data: Data) -> PrivateKey? {
         return try? PrivateKey(x963Representation: [0x04] + data)
     }
     
-    public static func pem(toPrivateKey pem: String) -> PrivateKey? {
+    static func pem(toPrivateKey pem: String) -> PrivateKey? {
         return try? PrivateKey(pemRepresentation: pem)
     }
     
-    public static func generateSecret(fromPrivateKey privateKey: PrivateKey, publicKey: PublicKey) -> Data? {
+    static func generateSecret(fromPrivateKey privateKey: PrivateKey, publicKey: PublicKey) -> Data? {
         return try? privateKey.sharedSecretFromKeyAgreement(with: publicKey).withUnsafeBytes { Data($0) }
     }
     
-    public static func deriveKey(from input: Data, withSalt salt: Data? = nil) -> Data {
+    cgstatic func deriveKey(from input: Data, withSalt salt: Data? = nil) -> Data {
         let info: Data
         if salt.isSome() {
             info = "mible-login-info".data(using: .utf8)!
@@ -81,13 +81,13 @@ public class MiCrypto {
         return key.withUnsafeBytes { Data($0) }
     }
     
-    public static func hash(key: Data, withData data: Data? = nil) -> Data {
+    static func hash(key: Data, withData data: Data? = nil) -> Data {
         var hmac = HMAC<SHA256>(key: Key(data: key))
         if let data = data { hmac.update(data: data) }
         return hmac.finalize().withUnsafeBytes { Data($0) }
     }
     
-    public static func encrypt(did: Data, withKey key: Data) -> Data? {
+    static func encrypt(did: Data, withKey key: Data) -> Data? {
         let aad = Data([0x64, 0x65, 0x76, 0x49, 0x44])
         let nonce = Data([0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b])
         
@@ -95,7 +95,7 @@ public class MiCrypto {
         return ccm.encrypt(data: did)
     }
     
-    public static func encryptUart(withKey key: Data, iv: Data, massage: Data, it: Int32 = 0, rand: Data? = nil) -> Data? {
+    static func encryptUart(withKey key: Data, iv: Data, massage: Data, it: Int32 = 0, rand: Data? = nil) -> Data? {
         let message = massage.from(2)
         let size = message.to(1)
         let dataInput = message.from(1) + rand.or(Data.random(4))
@@ -115,7 +115,7 @@ public class MiCrypto {
         return header + data + crc
     }
     
-    public static func decryptUart(withKey key: Data, iv: Data, message: Data) -> Data? {
+    static func decryptUart(withKey key: Data, iv: Data, message: Data) -> Data? {
         let header = message.to(2)
         if header != Data([0x55, 0xab]) {
             print("Invalid header: \(header)")

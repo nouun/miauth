@@ -8,7 +8,7 @@
 import CoreBluetooth
 import Foundation
 
-protocol MiClientDelegate {
+internal protocol MiClientDelegate {
     func peripheral(_ peripheral: CBPeripheral, discoveredCharacteristic characteristic: CBCharacteristic)
     func peripheral(_ peripheral: CBPeripheral, characteristic: CBCharacteristic, recievedValue data: Data)
 }

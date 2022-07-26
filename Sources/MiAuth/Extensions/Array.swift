@@ -13,4 +13,19 @@ extension Array {
             Self(self[$0 ..< Swift.min($0 + size, count)])
         }
     }
+    
+    func from(_ start: Int, to end: Int? = nil) -> Self {
+        let start = start < 0 ? self.count + start : start
+        
+        guard var end = end else {
+            return Self(self[start...])
+        }
+        
+        end = end < 0 ? self.count + end : end
+        return Self(self[start..<end])
+    }
+    
+    func to(_ end: Int) -> Self {
+        self.from(0, to: end)
+    }
 }

@@ -13,6 +13,8 @@ public enum MiState {
     case connected(device: CBPeripheral)
     case disconnected(device: CBPeripheral)
     
+    case waitingForButtonPress
+    
     case fetchingServices
     case fetchingCharacteristics
     

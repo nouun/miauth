@@ -61,17 +61,31 @@ public class BaseClient: NSObject {
             return
         }
         
-        self.writeChunked(Data(self.frameHeader + value), to: txChar)
+        let data = self.encrypt(data: value)
+        self.writeChunked(Data(self.frameHeader + data), to: txChar)
     }
     
-    internal func writeChunked(_ data: Data, to characteristic: CBCharacteristic, withChuckSize chunkSize: Int = 20) {
+    internal func write(_ data: Data, to characteristic: CBCharacteristic) {
         guard let peripheral = self.peripheral else {
             return
         }
         
-        [UInt8](data).chunked(into: chunkSize).forEach { data in
-            peripheral.writeValue(Data(data), for: characteristic, type: .withResponse)
-        }
+        print("Writing \(data.hex()) to \(characteristic.uuid.uuidString)")
+        peripheral.writeValue(data, for: characteristic, type: .withoutResponse)
+    }
+    
+    internal func writeChunked(_ data: Data, to characteristic: CBCharacteristic, withChuckSize chunkSize: Int = 20) {
+        data.chunked(into: chunkSize).forEach { self.write($0, to: characteristic) }
+    }
+    
+    internal func writeParcel(_ data: Data, to characteristic: CBCharacteristic, withParcelSize parcelSize: Int = 18) {
+        data.chunked(into: parcelSize)
+            .enumerated()
+            .forEach { self.write(Data([UInt8($0.offset) + 1, 0x00]) + $0.element, to: characteristic) }
+    }
+    
+    internal func encrypt(data: Data) -> Data {
+        return data
     }
 }
 
@@ -95,14 +109,21 @@ extension BaseClient: CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         peripheral.delegate = self
         self.peripheral = peripheral
-        self.delegate?.didUpdate(miState: .connected(device: peripheral))
+        
+        self.discoveredServices = []
+        self.discoveredCharacteristics = []
+        if self.clientDelegate?.connectedTo(peripheral: peripheral) == true {
+            self.delegate?.didUpdate(miState: .connected(device: peripheral))
+        }
         
         peripheral.discoverServices([])
         self.delegate?.didUpdate(miState: .fetchingServices)
     }
     
     public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        self.delegate?.didUpdate(miState: .disconnected(device: peripheral))
+        if self.clientDelegate?.disconnectedFrom(peripheral: peripheral) == true {
+            self.delegate?.didUpdate(miState: .disconnected(device: peripheral))
+        }
     }
 }
 
@@ -127,6 +148,12 @@ extension BaseClient: CBPeripheralDelegate {
         self.discoveredCharacteristics.append(contentsOf: undiscoveredCharacteristics)
         
         for characteristic in characteristics {
+            if characteristic.properties.contains(.notify) {
+                print("Enabling notifications for \(characteristic.uuid.uuidString)")
+                peripheral.setNotifyValue(true, for: characteristic)
+                peripheral.readValue(for: characteristic)
+            }
+            
             guard let miUUID = self.services.first(where: { $0.uuid == characteristic.uuid }) else { continue }
             
             switch miUUID {
@@ -142,7 +169,7 @@ extension BaseClient: CBPeripheralDelegate {
     }
     
     public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard let value = characteristic.value, error == nil else { return }
+        guard let value = characteristic.value else { return }
         
         self.clientDelegate?.peripheral(peripheral, characteristic: characteristic, recievedValue: value)
     }

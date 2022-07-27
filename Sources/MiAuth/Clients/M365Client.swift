@@ -8,7 +8,7 @@
 import CoreBluetooth
 import Foundation
 
-public class M365Client: BaseClient {
+public final class M365Client: BaseClient {
     private var key55ab: Data?
     private var keyChar: CBCharacteristic?
     
@@ -38,6 +38,8 @@ public class M365Client: BaseClient {
 
 extension M365Client: MiClientDelegate {
     func peripheral(_ peripheral: CBPeripheral, discoveredCharacteristic characteristic: CBCharacteristic) {
+        guard characteristic.uuid == MiUUID.KEY.uuid else { return }
+        
         self.keyChar = characteristic
         self.delegate?.didUpdate(miState: .fetchingKey)
         

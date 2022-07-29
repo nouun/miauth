@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum MiCommand {
+enum MiCommand: CaseIterable {
     case cmdGetInfo, cmdSetKey, cmdLogin, cmdAuth
     case cmdSendData, cmdSendDid, cmdSendKey, cmdSendInfo
     case rcvRdy, rcvOk, rcvTout, rcvErr

@@ -108,11 +108,10 @@ public class MiCrypto {
             return nil
         }
         
-        let header = Data([0x55, 0xab])
         let data = size + it.to(2) + ct
         let crc = crc16(data)
         
-        return header + data + crc
+        return data + crc
     }
     
     static func decryptUart(withKey key: Data, iv: Data, message: Data) -> Data? {

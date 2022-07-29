@@ -9,18 +9,25 @@ import CoreBluetooth
 import Foundation
 
 public enum MiState {
+    // General
     case failedToConnect(device: CBPeripheral, error: Error?)
     case connected(device: CBPeripheral)
     case disconnected(device: CBPeripheral)
     
-    case waitingForButtonPress
-    
     case fetchingServices
     case fetchingCharacteristics
     
+    // Authentication
     case fetchingKey
     case authenticating
+    case authenticationError(error: Data)
     case authenticated
+    
+    // Mi Auth specific
+    case authenticationReady
+    case waitingForButtonPress
+    case registered(token: Data)
+    case invalidToken
 }
 
 public enum MiValue {

@@ -17,18 +17,19 @@ public final class M365Client: BaseClient {
     public required init() {
         super.init()
         
-        self.frameHeader = [ 0x55, 0xAB ]
-        self.services   += [ MiUUID.KEY ]
+        self.frameHeader = Data([0x55, 0xAB])
+        self.services   += [.KEY]
         self.clientDelegate = self
     }
     
-    public override func write(value: Data) {
-        guard let key = self.key55ab else { return }
+    override func encrypt(data: Data) -> Data {
+        guard let key = self.key55ab else { return data }
         
-        let len = Data(value[0..<1])
-        var cmd = len + self.crypt(value.from(1) + Data([ 0x00, 0x00, 0x00, 0x00 ]), withKey: key)
+        let len = Data(data[0..<1])
+        var cmd = len + self.crypt(data.from(1) + Data([ 0x00, 0x00, 0x00, 0x00 ]), withKey: key)
         cmd.append(crc16(cmd))
-        super.write(value: cmd)
+        
+        return cmd
     }
     
     func crypt(_ bytes: Data, withKey key: Data) -> Data {

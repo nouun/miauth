@@ -12,7 +12,7 @@ public class BaseClient: NSObject {
     private var autoDiscover: Bool
     private var manager: CBCentralManager!
     private var peripherals: [CBPeripheral] = []
-    internal var peripheral: CBPeripheral?
+    public var peripheral: CBPeripheral?
     
     internal var txChar: CBCharacteristic?
     
@@ -22,8 +22,8 @@ public class BaseClient: NSObject {
     internal var discoveredServices: [CBService] = []
     
     internal var clientDelegate: MiClientDelegate?
-    internal var services: [MiUUID] = [ MiUUID.RX, MiUUID.TX ]
-    internal var frameHeader: [UInt8] = []
+    internal var services: [MiUUID] = [ .RX, .TX ]
+    internal var frameHeader = Data()
     
     public init(autoDiscover: Bool = true) {
         self.autoDiscover = autoDiscover

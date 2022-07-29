@@ -8,21 +8,21 @@
 import CoreBluetooth
 import Foundation
 
+public enum MiSequenceState: Int {
+    case recvInfo = 0
+    case sendKey = 1
+    case recvKey = 2
+    case sendDid = 3
+    case confirm = 4
+    case commSend = 5
+    case commRecv = 6
+}
+
 private struct MiSequence {
-    enum State: Int {
-        case recvInfo = 0
-        case sendKey = 1
-        case recvKey = 2
-        case sendDid = 3
-        case confirm = 4
-        case commSend = 5
-        case commRecv = 6
-    }
-    
-    var state: State
+    var state: MiSequenceState
     var function: (() -> Void)?
     
-    init(state: State, function: (() -> Void)? = nil) {
+    init(state: MiSequenceState, function: (() -> Void)? = nil) {
         self.state = state
         self.function = function
     }
@@ -39,7 +39,7 @@ public final class MiClient: BaseClient {
     
     private var sequence: [MiSequence] = []
     private var sequenceIndex = 0
-    private var state: MiSequence.State {
+    private var state: MiSequenceState {
         self.sequence[self.sequenceIndex].state
     }
     
@@ -48,6 +48,7 @@ public final class MiClient: BaseClient {
     private var receivedData = Data()
     private var sendData = Data()
     
+    private var uartIgnore = 0
     private var uartIteration: Int32 = 0
     private var keys: [String:Data] = [:]
     private var remoteInfo = Data()
@@ -64,12 +65,12 @@ public final class MiClient: BaseClient {
     public required init() {
         super.init()
         
-        self.frameHeader = [ 0x55, 0xAB ]
-        self.services   += [ MiUUID.UPNP, MiUUID.AVDTP ]
+        self.frameHeader = Data([0x55, 0xAB])
+        self.services   += [.UPNP, .AVDTP ]
         self.clientDelegate = self
     }
     
-    fileprivate func isState(_ state: MiSequence.State) -> Bool {
+    fileprivate func isState(_ state: MiSequenceState) -> Bool {
         self.sequence[self.sequenceIndex].state == state
     }
     
@@ -81,6 +82,20 @@ public final class MiClient: BaseClient {
         }
         
         print("Switching to state \(self.state)")
+        self.sequence[self.sequenceIndex].call()
+    }
+    
+    public func setState(to state: MiSequenceState) {
+        let foundState = self.sequence
+            .enumerated()
+            .first(where: { $0.element.state.rawValue == state.rawValue })
+        
+        guard let sequenceIndex = foundState?.offset else {
+            print("Unable to find state \(state) in current sequence.")
+            return
+        }
+        
+        self.sequenceIndex = sequenceIndex
         self.sequence[self.sequenceIndex].call()
     }
     
@@ -164,21 +179,40 @@ public final class MiClient: BaseClient {
             return data
         }
         
+        return encrypted
+    }
+    
+    public override func write(value: Data) {
+        self.setState(to: .commRecv)
+        
         self.uartIteration += 1
-        self.expectedCommand = data.from(4, to: 6)
+        self.expectedCommand = value.from(2, to: 4)
         if self.expectedCommand[0] == 1,
-           let last = data.last {
+           let last = value.last {
             self.expectedFrames = UInt16(last) + 2
         }
         
-        return encrypted
+        super.write(value: value)
+    }
+    
+    private func decrypt(data: Data) -> (destination: UInt8, command: Data, decoded: Data)? {
+        guard let devKey = keys["devKey"],
+              let devIv = keys["devIv"],
+              let decoded = MiCrypto.decryptUart(withKey: devKey, iv: devIv, message: data) else {
+            return nil
+        }
+        
+        return (decoded[0], decoded.from(1, to: 3), decoded.from(3, to: -4))
     }
 }
 
 // MARK: - Login and Register
 
 extension MiClient {
-    public func login() {
+    public func login(withToken token: Data) {
+        self.clearBuffers()
+        self.token = token
+        
         let randomKey = MiCrypto.generateRandomKey()
         
         self.sequence = [
@@ -201,22 +235,46 @@ extension MiClient {
                 
                 if expectedRemoteInfo != self.remoteInfo {
                     print("Expected remote info isn't equal to remote info, try registering again")
+                    print("Expected: " + expectedRemoteInfo.hex())
+                    print("Actual: " + self.remoteInfo.hex())
+                    self.delegate?.didUpdate(miState: .invalidToken)
                     return
                 }
                 
                 self.writeAvdtp(command: .cmdSendInfo)
             }),
             MiSequence(state: .confirm),
-            MiSequence(state: .commSend, function: {}),
-            MiSequence(state: .commRecv, function: {
-                self.clearBuffers()
-            })
+            MiSequence(state: .commSend),
+            MiSequence(state: .commRecv)
         ]
         self.sequenceIndex = 0
+        self.sequence[self.sequenceIndex].call()
     }
     
     public func register(withDid did: Data? = nil) {
+        self.clearBuffers()
         let (privKey, pubKey) = MiCrypto.generateKeyPair()
+        
+        let timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
+            guard let peripheral = self.peripheral else {
+                print("Not connected to a device")
+                return
+            }
+    
+            self.clearBuffers()
+            self.upnpChar = nil
+            self.avdtpChar = nil
+            
+            self.registerRestarting = true
+            self.registerDid = did
+            
+            self.disconnect()
+            self.delegate?.didUpdate(miState: .waitingForButtonPress)
+            print("Press the power button within the next 5 seconds")
+            Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { _ in
+                self.connect(to: peripheral)
+            }
+        }
         
         self.sequence = [
             MiSequence(state: .recvInfo, function: {
@@ -244,37 +302,21 @@ extension MiClient {
                 self.writeAvdtp(command: .cmdSendDid)
             }),
             MiSequence(state: .confirm, function: {
+                timer.invalidate()
                 self.writeUpnp(command: .cmdAuth)
             }),
-            MiSequence(state: .commSend, function: nil)
+            MiSequence(state: .commSend, function: {
+                guard let token = self.token else {
+                    print("Token not set")
+                    return
+                }
+                
+                self.delegate?.didUpdate(miState: .registered(token: token))
+            })
         ]
         self.sequenceIndex = 0
         
         self.sequence[self.sequenceIndex].call()
-        
-        DispatchQueue.global(qos: .background).async {
-            Thread.sleep(forTimeInterval: 3)
-            if self.isState(.sendKey) {
-                self.clearBuffers()
-        
-                guard let peripheral = self.peripheral else {
-                    print("Not connected to a device")
-                    return
-                }
-        
-                self.upnpChar = nil
-                self.avdtpChar = nil
-                
-                self.registerRestarting = true
-                self.registerDid = did
-                
-                self.disconnect()
-                self.delegate?.didUpdate(miState: .waitingForButtonPress)
-                print("Press the power button within the next 5 seconds")
-                Thread.sleep(forTimeInterval: 5)
-                self.connect(to: peripheral)
-            }
-        }
     }
 }
 
@@ -323,7 +365,6 @@ extension MiClient {
     private func handleConfirm(frame: UInt16, data: Data) {
         switch data {
         case MiCommand.cfmRegisterOk.payload:
-            self.delegate?.didUpdate(miState: .authenticated)
             print("Mi register successful")
         case MiCommand.cfmRegisterErr.payload:
             print("Mi register failed")
@@ -338,9 +379,41 @@ extension MiClient {
         
         self.nextState()
     }
+    
+    private func handleCommReceive(data: Data) {
+        if data.to(2) == self.frameHeader {
+            if data[2] != self.expectedFrames {
+                print("Rogue packet header received, started ignoring")
+                self.uartIgnore += 1
+                return
+            }
+            
+            self.expectedFrames = UInt16(data[2])
+        }
+        
+        if self.uartIgnore != 0 {
+            print("Message ignored")
+            if self.uartIgnore > 3 {
+                print("Command never came")
+                self.setState(to: .commSend)
+            }
+            
+            return
+        }
+        
+        self.receivedData += data
+        
+        if self.receivedData.count < self.expectedFrames * 2 { return }
+        guard let (dst, cmd, dec) = self.decrypt(data: self.receivedData) else { return }
+        
+        if self.expectedFrames == dec.count * 2 && dst >= 0x23 && cmd == self.expectedCommand {
+            self.receivedData = dec
+            self.setState(to: .commSend)
+        }
+    }
 }
 
-// MARK: - Encryption
+// MARK: - Cryptography
 
 extension MiClient {
     private func calculateDID(withPrivateKey privateKey: MiCrypto.PrivateKey) -> (did: Data, token: Data)? {
@@ -413,19 +486,12 @@ extension MiClient: MiClientDelegate {
         }
         
         if self.avdtpChar.isSome() && self.upnpChar.isSome() {
-            if self.token == nil {
-                print("Registering token")
-                let did: Data?
-                if self.registerRestarting {
-                    did = self.registerDid
-                    self.registerRestarting = false
-                } else {
-                    did = nil
-                }
-                self.register(withDid: did)
+            if self.registerRestarting {
+                print("Restarting registration")
+                self.registerRestarting = false
+                self.register(withDid: self.registerDid)
             } else {
-                print("Logging in")
-                //self.login()
+                self.delegate?.didUpdate(miState: .authenticationReady)
             }
         }
     }
@@ -437,20 +503,28 @@ extension MiClient: MiClientDelegate {
         
         if value.isIn(MiCommand.errors.map { $0.payload }) {
             print("Auth failed. Previous session not reset, missing BLE DID or something.")
+            self.delegate?.didUpdate(miState: .authenticationError(error: value))
             return
         }
         
         if self.state == .commRecv {
-            // TODO: Implement
+            self.handleCommReceive(data: data)
+            return
         }
             
-            
+        if !(value.isIn(MiCommand.allCases.map { $0.payload }) || (value[0] > 0x00 && value[0] <= self.expectedFrames)) { return }
+        
         var frame = UInt16(value[0])
         if value.count > 1 {
             frame += 0x100 * UInt16(data[1])
         }
         
         if self.state.isIn([.recvInfo, .recvKey]) {
+            if data.count < 6 {
+                print("Invalid data")
+                return
+            }
+            
             self.handleReceive(frame: frame, data: data)
         } else if self.state.isIn([.sendDid, .sendKey]) {
             self.handleSend(frame: frame, data: data)

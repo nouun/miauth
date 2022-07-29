@@ -80,7 +80,7 @@ public struct MiPayload: Payload {
         frameTemperature,
         batteryLevel, escVoltage, batteryVoltage, batteryCurrent,
         lock, unlock,
-        ecoMode, reboot, shutDown
+        ecoMode, reboot, shutDown.payload.hex()
     ]
     
     

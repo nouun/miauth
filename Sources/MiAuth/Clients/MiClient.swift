@@ -14,8 +14,9 @@ public enum MiSequenceState: Int {
     case recvKey = 2
     case sendDid = 3
     case confirm = 4
-    case commSend = 5
-    case commRecv = 6
+    case authenticated = 5
+    case commSend = 6
+    case commRecv = 7
 }
 
 private struct MiSequence {
@@ -38,7 +39,12 @@ public final class MiClient: BaseClient {
     private var avdtpChar: CBCharacteristic?
     
     private var sequence: [MiSequence] = []
-    private var sequenceIndex = 0
+    private var sequenceIndex = 0 {
+        didSet {
+            guard self.sequenceIndex < sequence.count else { return }
+            print("Switched to state \(self.state)")
+        }
+    }
     private var state: MiSequenceState {
         self.sequence[self.sequenceIndex].state
     }
@@ -81,7 +87,6 @@ public final class MiClient: BaseClient {
             self.sequenceIndex = 0
         }
         
-        print("Switching to state \(self.state)")
         self.sequence[self.sequenceIndex].call()
     }
     
@@ -100,17 +105,11 @@ public final class MiClient: BaseClient {
     }
     
     private func clearBuffers() {
-        self.expectedCommand = Data()
-        self.expectedFrames = 0x0000
-        
-        self.receivedData = Data()
         self.sendData = Data()
-        
-        self.uartIteration = 0
-        self.keys = [:]
-        
-        self.remoteInfo = Data()
-        self.remoteKey = Data()
+        self.expectedFrames = 0
+        self.expectedCommand = Data()
+        self.receivedData = Data()
+        self.uartIgnore = 0
     }
 
     // MARK: - Writing
@@ -174,7 +173,7 @@ public final class MiClient: BaseClient {
             return data
         }
         
-        guard let encrypted = MiCrypto.encryptUart(withKey: appKey, iv: appIv, massage: data, it: self.uartIteration) else {
+        guard let encrypted = MiCrypto.encryptUart(withKey: appKey, iv: appIv, message: data, it: self.uartIteration) else {
             print("Failed to encrypt data, falling back to unencrypted data")
             return data
         }
@@ -244,8 +243,14 @@ extension MiClient {
                 self.writeAvdtp(command: .cmdSendInfo)
             }),
             MiSequence(state: .confirm),
+            MiSequence(state: .authenticated, function: {
+                self.clearBuffers()
+                self.delegate?.didUpdate(miState: .authenticated)
+            }),
             MiSequence(state: .commSend),
-            MiSequence(state: .commRecv)
+            MiSequence(state: .commRecv, function: {
+                self.clearBuffers()
+            })
         ]
         self.sequenceIndex = 0
         self.sequence[self.sequenceIndex].call()
@@ -305,14 +310,15 @@ extension MiClient {
                 timer.invalidate()
                 self.writeUpnp(command: .cmdAuth)
             }),
-            MiSequence(state: .commSend, function: {
+            MiSequence(state: .authenticated, function: {
                 guard let token = self.token else {
                     print("Token not set")
                     return
                 }
                 
                 self.delegate?.didUpdate(miState: .registered(token: token))
-            })
+            }),
+            MiSequence(state: .commSend)
         ]
         self.sequenceIndex = 0
         
@@ -369,7 +375,6 @@ extension MiClient {
         case MiCommand.cfmRegisterErr.payload:
             print("Mi register failed")
         case MiCommand.cfmLoginOk.payload:
-            self.delegate?.didUpdate(miState: .authenticated)
             print("Mi login successful")
         case MiCommand.cfmLoginErr.payload:
             print("Mi login successful")
@@ -406,8 +411,12 @@ extension MiClient {
         if self.receivedData.count < self.expectedFrames * 2 { return }
         guard let (dst, cmd, dec) = self.decrypt(data: self.receivedData) else { return }
         
-        if self.expectedFrames == dec.count * 2 && dst >= 0x23 && cmd == self.expectedCommand {
-            self.receivedData = dec
+        if self.expectedFrames == dec.count + 2 && dst >= 0x23 && cmd == self.expectedCommand {
+            switch cmd {
+            case Data([0x01, 0x10]): self.delegate?.didRecieve(value: .serial(number: self.asciiSerializer(bytes: dec)))
+            default: print("Unknown command: '\(cmd.hex())'")
+            }
+            
             self.setState(to: .commSend)
         }
     }
@@ -430,7 +439,7 @@ extension MiClient {
         guard let didCt = MiCrypto.encrypt(did: did, withKey: key) else { return nil }
         
         print("token: \(token.hex())")
-        print("bingKey: \(bindKey.hex())")
+        print("bindKey: \(bindKey.hex())")
         print("key: \(key.hex())")
         print("did: \(did.hex())")
         print("didCt: \(didCt.hex())")
@@ -458,7 +467,7 @@ extension MiClient {
         let expectedRemoteInfo = MiCrypto.hash(key: keys["devKey"]!, withData: saltInv)
         
         print("HKDF: \(derivedKey.hex())")
-        keys.map { "\($0.key): \($0.value)" }.forEach { print($0) }
+        keys.map { $0.key + ": " + $0.value.hex() }.forEach { print($0) }
         
         return (info, expectedRemoteInfo, keys)
     }
@@ -499,7 +508,12 @@ extension MiClient: MiClientDelegate {
     func peripheral(_ peripheral: CBPeripheral, characteristic: CBCharacteristic, recievedValue data: Data) {
         let value = data
         
-        print("Received: \(data.hex())")
+        if value.isEmpty {
+            print("Received empty")
+            return
+        }
+        
+        print("Received \(data.hex())")
         
         if value.isIn(MiCommand.errors.map { $0.payload }) {
             print("Auth failed. Previous session not reset, missing BLE DID or something.")
@@ -512,7 +526,10 @@ extension MiClient: MiClientDelegate {
             return
         }
             
-        if !(value.isIn(MiCommand.allCases.map { $0.payload }) || (value[0] > 0x00 && value[0] <= self.expectedFrames)) { return }
+        if !(value.isIn(MiCommand.allCases.map { $0.payload }) ||
+             (value[0] > 0x00 && value[0] <= self.expectedFrames)) {
+            return
+        }
         
         var frame = UInt16(value[0])
         if value.count > 1 {

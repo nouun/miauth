@@ -57,7 +57,7 @@ extension M365Client: MiClientDelegate {
         if let keyChar = self.keyChar, keyChar.uuid == characteristic.uuid {
             self.key55ab = value
             self.delegate?.didUpdate(miState: .authenticating)
-            self.write(payload: .keyResponse)
+            self.write(payload: MiPayload.keyResponse)
             return
         }
         
@@ -98,16 +98,5 @@ extension M365Client: MiClientDelegate {
             default: print("unrecognized value: cmd: '\(cmd)' val: '\(value.hex())'")
             }
         }
-    }
-    
-    func versionSerializer(bytes: Data) -> String {
-        return bytes
-            .map { String(format: "%02hhX", $0) }
-            .to(2)
-            .joined(separator: ".")
-    }
-    
-    func asciiSerializer(bytes: Data) -> String {
-        return String(data: bytes, encoding: String.Encoding.ascii)!
     }
 }

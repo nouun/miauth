@@ -52,7 +52,10 @@ public class BaseClient: NSObject {
         self.manager.cancelPeripheralConnection(device)
     }
     
-    public func write(payload: MiPayload) {
+    
+    // MARK: - Writing
+    
+    public func write<T: Payload>(payload: T) {
         self.write(value: payload.payload)
     }
     
@@ -88,6 +91,25 @@ public class BaseClient: NSObject {
         return data
     }
 }
+
+
+// MARK: - Serialization
+
+extension BaseClient {
+    func versionSerializer(bytes: Data) -> String {
+        return bytes
+            .map { String(format: "%02hhX", $0) }
+            .to(2)
+            .joined(separator: ".")
+    }
+    
+    func asciiSerializer(bytes: Data) -> String {
+        return String(data: bytes, encoding: String.Encoding.ascii)!
+    }
+}
+
+
+// MARK: - Bluetooth Manager Delegate
 
 extension BaseClient: CBCentralManagerDelegate {
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
@@ -126,6 +148,9 @@ extension BaseClient: CBCentralManagerDelegate {
         }
     }
 }
+
+
+// MARK: - Bluetooth Peripheral Delegate
 
 extension BaseClient: CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {

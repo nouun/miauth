@@ -95,8 +95,7 @@ public class MiCrypto {
         return ccm.encrypt(data: did)
     }
     
-    static func encryptUart(withKey key: Data, iv: Data, massage: Data, it: Int32 = 0, rand: Data? = nil) -> Data? {
-        let message = massage.from(2)
+    static func encryptUart(withKey key: Data, iv: Data, message: Data, it: Int32 = 0, rand: Data? = nil) -> Data? {
         let size = message.to(1)
         let dataInput = message.from(1) + rand.or(Data.random(4))
         
@@ -117,7 +116,7 @@ public class MiCrypto {
     static func decryptUart(withKey key: Data, iv: Data, message: Data) -> Data? {
         let header = message.to(2)
         if header != Data([0x55, 0xab]) {
-            print("Invalid header: \(header)")
+            print("Invalid header: \(header.hex())")
             return nil
         }
         
